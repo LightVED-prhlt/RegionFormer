@@ -50,11 +50,12 @@ class ClipCocoDataset(Dataset):
     the concatenation [image_emb, mask_emb] as the prefix input vector. Otherwise only image_emb.
     """
     def __init__(self, data_path: str, prefix_length: int, gpt2_type: str = "gpt2",
-                 normalize_prefix: bool = False, use_mask: bool = False):
+                 normalize_prefix: bool = False, use_mask: bool = False, mask_only: bool = False):
         self.tokenizer = GPT2Tokenizer.from_pretrained(gpt2_type)
         self.prefix_length = prefix_length
         self.normalize_prefix = normalize_prefix
         self.use_mask = use_mask
+        self.mask_only = mask_only
 
         with open(data_path, 'rb') as f:
             all_data = pickle.load(f)
@@ -85,8 +86,13 @@ class ClipCocoDataset(Dataset):
             self.caption2maskembedding = tmp
 
         # Token cache keyed by mask usage to avoid shape mismatches across runs
-        mask_suffix = "_mask" if self.has_mask and self.use_mask else ""
-        token_cache = f"{data_path[:-4]}_tokens{mask_suffix}.pkl"
+        if self.mask_only:
+            mode_suffix = "_maskonly"
+        elif self.use_mask:
+            mode_suffix = "_imgmask"
+        else:
+            mode_suffix = "_img"
+        token_cache = f"{data_path[:-4]}_tokens{mode_suffix}.pkl"
 
         if os.path.isfile(token_cache):
             try:
@@ -151,23 +157,45 @@ class ClipCocoDataset(Dataset):
         idx_img = int(self.caption2embedding[item])
         prefix_img = self.prefixes[idx_img]
 
-        # Optionally get mask embedding and concat
-        use_mask_here = self.use_mask and self.has_mask and (self.caption2maskembedding is not None) \
-                        and (self.caption2maskembedding[item] is not None) and (self.caption2maskembedding[item] >= 0)
-        if use_mask_here:
+        # check if we actually have a valid mask embedding index
+        has_valid_mask = (
+            self.has_mask and
+            (self.caption2maskembedding is not None) and
+            (self.caption2maskembedding[item] is not None) and
+            (self.caption2maskembedding[item] >= 0)
+        )
+
+        if self.mask_only:
+            if not has_valid_mask:
+                raise RuntimeError("mask_only=True but sample has no mask embedding")
             idx_mask = int(self.caption2maskembedding[item])
             prefix_mask = self.prefixes[idx_mask]
+
+            if self.normalize_prefix:
+                prefix_mask = prefix_mask.float()
+                prefix_mask = prefix_mask / (prefix_mask.norm(2, -1) + 1e-8)
+
+            prefix = prefix_mask
+
+        elif self.use_mask and has_valid_mask:
+            idx_mask = int(self.caption2maskembedding[item])
+            prefix_mask = self.prefixes[idx_mask]
+
             if self.normalize_prefix:
                 prefix_img = prefix_img.float()
                 prefix_img = prefix_img / (prefix_img.norm(2, -1) + 1e-8)
                 prefix_mask = prefix_mask.float()
                 prefix_mask = prefix_mask / (prefix_mask.norm(2, -1) + 1e-8)
+
             prefix = torch.cat([prefix_img, prefix_mask], dim=-1)
+
         else:
-            prefix = prefix_img
+            # image only
             if self.normalize_prefix:
-                prefix = prefix.float()
-                prefix = prefix / (prefix.norm(2, -1) + 1e-8)
+                prefix_img = prefix_img.float()
+                prefix_img = prefix_img / (prefix_img.norm(2, -1) + 1e-8)
+            prefix = prefix_img
+
 
         image_id = self.image_ids[item]
         ref = self.captions[item]
@@ -351,8 +379,14 @@ def validate_and_save_csv(val_ds: ClipCocoDataset, model: nn.Module, args) -> st
 def build_model(args):
     # Base CLIP embedding size (ViT/RN)
     base_dim = 640 if args.is_rn else 512
-    # If using mask embeddings, we concatenated [img, mask] -> double dim
-    prefix_dim = base_dim * 2 if args.use_mask else base_dim
+    
+    if args.use_mask and not args.mask_only:
+        # concatenation [img || mask]
+        prefix_dim = base_dim * 2
+    else:
+        # either mask_only or image_only
+        prefix_dim = base_dim
+
     map_type = {'mlp': MappingType.MLP, 'transformer': MappingType.Transformer}[args.mapping_type]
     if args.only_prefix:
         model = ClipCaptionPrefix(args.prefix_length,
@@ -385,6 +419,7 @@ def parse_args():
     p.add_argument('--is_rn', action='store_true')
     p.add_argument('--normalize_prefix', action='store_true')
     p.add_argument('--use_mask', action='store_true', help="Concat CLIP mask embedding with image embedding")
+    p.add_argument('--mask_only', action='store_true', help="Use ONLY the mask embedding, ignore the image embedding")
 
     # Train
     p.add_argument('--epochs', type=int, default=10)
@@ -403,13 +438,17 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    if args.use_mask and args.mask_only:
+        raise ValueError("choose either --use_mask or --mask_only, not both")
+
     save_config(args)
 
     # Datasets (pass use_mask to control concatenation behavior)
     train_ds = ClipCocoDataset(args.train_pkl, args.prefix_length,
-                               normalize_prefix=args.normalize_prefix, use_mask=args.use_mask)
+                               normalize_prefix=args.normalize_prefix, use_mask=args.use_mask, mask_only=args.mask_only)
     val_ds   = ClipCocoDataset(args.val_pkl, args.prefix_length,
-                               normalize_prefix=args.normalize_prefix, use_mask=args.use_mask)
+                               normalize_prefix=args.normalize_prefix, use_mask=args.use_mask, mask_only=args.mask_only)
 
     # Model
     model = build_model(args)
