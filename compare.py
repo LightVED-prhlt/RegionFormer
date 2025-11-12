@@ -9,11 +9,11 @@ from textwrap import fill
 # --------------------
 # Paths
 # --------------------
-csv_without = Path("/home/moha/Desktop/CLIP_prefix_caption/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_without_mask_img_cr/padchestgr_prefix_val_captions.csv")
-csv_with    = Path("/home/moha/Desktop/CLIP_prefix_caption/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_with_mask_img_cr/padchestgr_prefix_val_captions.csv")
+csv_without = Path("/home/moha/Desktop/CLIP_prefix_caption/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_without_mask_img_attention/padchestgr_prefix_val_captions.csv")
+csv_with    = Path("/home/moha/Desktop/CLIP_prefix_caption/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_with_mask_img_attention/padchestgr_prefix_val_captions.csv")
 
-imgdir_without = Path("/home/moha/Desktop/CLIP_prefix_caption/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_without_mask_img_cr/attn_jpg")
-imgdir_with    = Path("/home/moha/Desktop/CLIP_prefix_caption/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_with_mask_img_cr/attn_jpg")
+imgdir_without = Path("/home/moha/Desktop/CLIP_prefix_caption/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_without_mask_img_attention/attn_jpg")
+imgdir_with    = Path("/home/moha/Desktop/CLIP_prefix_caption/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_with_mask_img_attention/attn_jpg")
 
 outdir = Path("/home/moha/Desktop/CLIP_prefix_caption/comparison")
 outdir.mkdir(parents=True, exist_ok=True)
@@ -61,13 +61,15 @@ def load_image(path: Path):
     with Image.open(path) as im:
         return im.convert("RGB")
 
-def safe_ref_outname(ref: str, max_words: int = 20, max_len: int = 240) -> str:
-    """Save using only ref (<=20 words), sanitized and length-limited."""
+def safe_ref_outname(imgid: str, ref: str, max_words: int = 20, max_len: int = 240) -> str:
+    """Save using imgid_Reftext (<=20 words), sanitized and length-limited."""
     ref_trunc = truncate_words(ref, max_words)
-    base = norm_text(ref_trunc)
-    if len(base) > max_len:
-        base = base[:max_len]
-    return base + ".jpg"
+    base_ref = norm_text(ref_trunc)
+    if len(base_ref) > max_len:
+        base_ref = base_ref[:max_len]
+    base_imgid = norm_imgid(imgid)
+    return f"{base_imgid}_{base_ref}.jpg"
+
 
 def make_figure(img_left, img_right, ref_text, hyp_left, hyp_right, save_path: Path):
     plt.figure(figsize=(12, 8))
@@ -133,7 +135,7 @@ for _, row in df.iterrows():
     try:
         im_left  = load_image(path_wo)
         im_right = load_image(path_wi)
-        out_name = safe_ref_outname(ref_txt)  # save using ONLY the ref (<=20 words)
+        out_name = safe_ref_outname(imgid, ref_txt)  # save using ONLY the ref (<=20 words)
         make_figure(im_left, im_right, ref_txt, hyp_wo, hyp_wi, outdir / out_name)
         created += 1
     except Exception as e:
