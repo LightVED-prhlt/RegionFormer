@@ -434,6 +434,10 @@ def parse_args():
     p.add_argument('--top_p', type=float, default=0.8)
     p.add_argument('--temp', type=float, default=1.0)
 
+    p.add_argument('--percent', type=int, default=100,
+               help="Percentage of training set to keep (0–100)")
+
+
     return p.parse_args()
 
 def main():
@@ -449,6 +453,21 @@ def main():
                                normalize_prefix=args.normalize_prefix, use_mask=args.use_mask, mask_only=args.mask_only)
     val_ds   = ClipCocoDataset(args.val_pkl, args.prefix_length,
                                normalize_prefix=args.normalize_prefix, use_mask=args.use_mask, mask_only=args.mask_only)
+
+
+    # Apply percentage subsampling
+    if args.percent < 100:
+        keep = int(len(train_ds) * (args.percent / 100.0))
+        print(f"Using only {keep} samples out of {len(train_ds)} ({args.percent}%)")
+        
+        indices = torch.randperm(len(train_ds))[:keep]
+        train_ds.captions_tokens = [train_ds.captions_tokens[i] for i in indices]
+        train_ds.caption2embedding = [train_ds.caption2embedding[i] for i in indices]
+        if train_ds.caption2maskembedding is not None:
+            train_ds.caption2maskembedding = [train_ds.caption2maskembedding[i] for i in indices]
+        train_ds.captions = [train_ds.captions[i] for i in indices]
+        train_ds.image_ids = [train_ds.image_ids[i] for i in indices]
+
 
     # Model
     model = build_model(args)
