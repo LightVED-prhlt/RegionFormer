@@ -22,7 +22,19 @@ Below is the architecture diagram used in the paper:
 This work is built upon the **PadChest-GR** dataset:
 🔗 [https://arxiv.org/abs/2411.05085](https://arxiv.org/abs/2411.05085)
 
-Make sure to download and place the dataset following the directory structure expected by the parsing script (see instructions below).
+📂 Directory Structure and Contents
+
+To ensure the parsing script functions correctly, please download the dataset and set up the following directory structure within the /data folder (an example structure is provided in /data):
+
+    Images: Place the 4555 PNG images inside: /data/padchestgr/PadChest_GR/
+
+    CSV Files (Annotations): Place the following two CSV files inside: /data/padchestgr/
+
+        train_final_separated.csv (containing 7342 entries for training)
+
+        test_final_separated.csv (containing 2121 entries for testing)
+
+Each entry (row) in the CSV files corresponds to a single finding for a study.
 
 -----
 
