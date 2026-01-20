@@ -68,10 +68,17 @@ class MultiHeadAttention(nn.Module):
             if mask.dim() == 2:
                 mask = mask.unsqueeze(1)
             attention = attention.masked_fill(mask.unsqueeze(3), float("-inf"))
+        
+        # [LEGRAD] We must access the attention map AFTER softmax but BEFORE it's consumed.
         attention = attention.softmax(dim=2)  # softmax over key positions m
+        
+        # [LEGRAD] Hook for gradients: If we are tracking gradients (training or LeGrad), retain them.
+        if attention.requires_grad:
+            attention.retain_grad()
+
         out = torch.einsum('bnmh,bmhd->bnhd', attention, values).reshape(b, n, c)
         out = self.project(out)
-        return out, attention  # return attention for visualization
+        return out, attention  # return attention for visualization/LeGrad
 
 
 class TransformerLayer(nn.Module):
