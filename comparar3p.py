@@ -1,11 +1,23 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import ast
 import re
+import sys
+import os
 from pathlib import Path
+
 import pandas as pd
 import numpy as np
 from PIL import Image, ImageDraw, ImageOps
 import matplotlib.pyplot as plt
 from textwrap import fill
+
+# ======================================================
+# Make sure we can import your scorers
+# ======================================================
+sys.path.append(os.path.abspath(os.path.join(os.path.abspath(os.getcwd()), os.pardir)))
+from myscorers.bertscore.bertscore import BertScorer
 
 # ======================================================
 # Paths
@@ -16,25 +28,25 @@ csv_test = Path(
 
 csv_without = Path(
     "/home/moha/Desktop/RegionFormer/EXPERIMENTS/"
-    "padchestgr_train_tf_prefix_jpg_region_15_without_mask_img_cr/"
+    "padchestgr_train_tf_prefix_jpg_region_15_without_mask_img_cr_le/"
     "padchestgr_prefix_val_captions.csv"
 )
 
 csv_with = Path(
     "/home/moha/Desktop/RegionFormer/EXPERIMENTS/"
-    "padchestgr_train_tf_prefix_jpg_region_15_with_mask_img_cr/"
+    "padchestgr_train_tf_prefix_jpg_region_15_with_mask_img_cr_le/"
     "padchestgr_prefix_val_captions.csv"
 )
 
 imgdir_without = Path(
     "/home/moha/Desktop/RegionFormer/EXPERIMENTS/"
-    "padchestgr_train_tf_prefix_jpg_region_15_without_mask_img_cr/"
+    "padchestgr_train_tf_prefix_jpg_region_15_without_mask_img_cr_le/"
     "attn_jpg_legrad"
 )
 
 imgdir_with = Path(
     "/home/moha/Desktop/RegionFormer/EXPERIMENTS/"
-    "padchestgr_train_tf_prefix_jpg_region_15_with_mask_img_cr/"
+    "padchestgr_train_tf_prefix_jpg_region_15_with_mask_img_cr_le/"
     "attn_jpg_legrad"
 )
 
@@ -43,7 +55,11 @@ orig_imgdir = Path(
 )
 
 outdir = Path("/home/moha/Desktop/RegionFormer/comparison_3panel")
-outdir.mkdir(parents=True, exist_ok=True)
+outdir_greater = outdir / "greater"
+outdir_smaller = outdir / "smaller"
+
+outdir_greater.mkdir(parents=True, exist_ok=True)
+outdir_smaller.mkdir(parents=True, exist_ok=True)
 
 # ======================================================
 # Text helpers
@@ -159,7 +175,12 @@ df_wo.columns = [c.lower() for c in df_wo.columns]
 df_wi.columns = [c.lower() for c in df_wi.columns]
 
 # ======================================================
-# Main loop (PREFIX-BASED, CORRECT)
+# Initialize BERTScorer ONCE
+# ======================================================
+bert_scorer = BertScorer()
+
+# ======================================================
+# Main loop
 # ======================================================
 created = 0
 missing = 0
@@ -192,7 +213,18 @@ for _, row in df_test.iterrows():
         im_wo = load_image(attn_wo)
         im_wi = load_image(attn_wi)
 
-        out_path = outdir / safe_outname(imgid, ref_txt)
+        hyp_with = row_wi.iloc[0]["hyp"]
+
+        # -------- BERTScore (F1) --------
+        bert_f1 = float(bert_scorer([hyp_with], [ref_txt]))
+
+        # -------- Routing --------
+        if bert_f1 >= 0.5:
+            final_dir = outdir_greater
+        else:
+            final_dir = outdir_smaller
+
+        out_path = final_dir / safe_outname(imgid, ref_txt)
 
         make_figure(
             orig_img,
@@ -200,14 +232,17 @@ for _, row in df_test.iterrows():
             im_wi,
             ref_txt,
             row_wo.iloc[0]["hyp"],
-            row_wi.iloc[0]["hyp"],
+            hyp_with,
             out_path
         )
 
         created += 1
+        print(f"[OK] {imgid} | BERTScore(F1)={bert_f1:.3f}")
 
     except Exception as e:
         print(f"[ERROR] {imgid}: {e}")
+        missing += 1
 
-print(f"✅ Done. Created: {created}, Missing: {missing}")
-print(f"📁 Output directory: {outdir}")
+print(f"\n✅ Done. Created: {created}, Missing: {missing}")
+print(f"📁 Greater: {outdir_greater}")
+print(f"📁 Smaller: {outdir_smaller}")
