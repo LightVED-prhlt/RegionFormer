@@ -9,13 +9,13 @@ from textwrap import fill
 # --------------------
 # Paths
 # --------------------
-csv_without = Path("/home/moha/Desktop/CLIP_prefix_caption/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_without_mask_img_attention/padchestgr_prefix_val_captions.csv")
-csv_with    = Path("/home/moha/Desktop/CLIP_prefix_caption/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_with_mask_img_attention/padchestgr_prefix_val_captions.csv")
+csv_without = Path("/home/moha/Desktop/RegionFormer/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_without_mask_img_cr/padchestgr_prefix_val_captions.csv")
+csv_with    = Path("/home/moha/Desktop/RegionFormer/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_with_mask_img_cr/padchestgr_prefix_val_captions.csv")
 
-imgdir_without = Path("/home/moha/Desktop/CLIP_prefix_caption/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_without_mask_img_attention/attn_jpg")
-imgdir_with    = Path("/home/moha/Desktop/CLIP_prefix_caption/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_with_mask_img_attention/attn_jpg")
+imgdir_without = Path("/home/moha/Desktop/RegionFormer/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_without_mask_img_cr/attn_jpg_legrad")
+imgdir_with    = Path("/home/moha/Desktop/RegionFormer/EXPERIMENTS/padchestgr_train_tf_prefix_jpg_region_15_with_mask_img_cr/attn_jpg_legrad")
 
-outdir = Path("/home/moha/Desktop/CLIP_prefix_caption/comparison")
+outdir = Path("/home/moha/Desktop/RegionFormer/comparison")
 outdir.mkdir(parents=True, exist_ok=True)
 
 # --------------------
