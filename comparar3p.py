@@ -46,73 +46,56 @@ outdir = Path("/home/moha/Desktop/RegionFormer/comparison_3panel")
 outdir.mkdir(parents=True, exist_ok=True)
 
 # ======================================================
-# Helpers
+# Text helpers
 # ======================================================
-def truncate_words(text: str, max_words: int = 20) -> str:
-    return " ".join(str(text).split()[:max_words])
-
 def norm_text(s: str) -> str:
     s = str(s).strip()
     s = re.sub(r"\s+", "_", s)
     s = re.sub(r"[^0-9A-Za-z_]", "_", s)
     return re.sub(r"_+", "_", s).strip("_")
 
-def norm_imgid(imgid: str) -> str:
-    return norm_text(imgid.replace(".", ""))
+def truncate_words(text, max_words=20):
+    return " ".join(str(text).split()[:max_words])
 
-def safe_outname(imgid: str, ref: str) -> str:
-    return f"{norm_imgid(imgid)}_{norm_text(truncate_words(ref))}.jpg"
+def build_prefix(image_id: str, report_en: str) -> str:
+    img_part = image_id.replace(".png", "png")
+    rep_part = norm_text(report_en)
+    return f"{img_part}_{rep_part}_"
+
+def safe_outname(imgid, ref):
+    return f"{norm_text(imgid)}_{norm_text(truncate_words(ref))}.jpg"
 
 # ======================================================
-# PNG-SAFE medical image loader
+# Robust medical PNG loader
 # ======================================================
 def load_image(path: Path) -> Image.Image:
-    """
-    Correctly loads PadChest PNGs:
-    - Handles 16-bit grayscale
-    - Handles RGBA
-    - Applies robust contrast normalization
-    """
     im = Image.open(path)
 
-    # RGBA → RGB
-    if im.mode == "RGBA":
-        bg = Image.new("RGBA", im.size, (0, 0, 0, 255))
-        im = Image.alpha_composite(bg, im).convert("RGB")
-        return im
-
-    # 16-bit or float grayscale
     if im.mode in ("I;16", "I", "F"):
         arr = np.array(im).astype(np.float32)
-
         vmin = np.percentile(arr, 1)
         vmax = np.percentile(arr, 99)
-        if vmax <= vmin:
-            vmin, vmax = arr.min(), arr.max() if arr.max() > arr.min() else (0.0, 1.0)
-
         arr = np.clip(arr, vmin, vmax)
         arr = (arr - vmin) / (vmax - vmin + 1e-8)
-        arr = (arr * 255.0).astype(np.uint8)
-
-        im8 = Image.fromarray(arr, mode="L")
-        im8 = ImageOps.autocontrast(im8)
-        return im8.convert("RGB")
-
-    # Standard grayscale
-    if im.mode == "L":
+        arr = (arr * 255).astype(np.uint8)
+        im = Image.fromarray(arr)
         im = ImageOps.autocontrast(im)
         return im.convert("RGB")
 
-    # Already OK
+    if im.mode == "L":
+        return ImageOps.autocontrast(im).convert("RGB")
+
+    if im.mode == "RGBA":
+        return im.convert("RGB")
+
     return im.convert("RGB")
 
 # ======================================================
-# Draw bounding boxes (normalized coords)
+# Draw GT boxes
 # ======================================================
-def draw_boxes(image: Image.Image, boxes, color="red", width=3):
+def draw_boxes(image, boxes, color="red", width=5):
     draw = ImageDraw.Draw(image)
     W, H = image.size
-
     for entry in boxes:
         _, _, box_list = entry
         for x1, y1, x2, y2 in box_list:
@@ -122,6 +105,16 @@ def draw_boxes(image: Image.Image, boxes, color="red", width=3):
                 width=width
             )
     return image
+
+# ======================================================
+# Find attention image by prefix
+# ======================================================
+def find_by_prefix(directory: Path, prefix: str):
+    matches = list(directory.glob(prefix + "*.jpg"))
+    if not matches:
+        return None
+    matches.sort(key=lambda p: len(p.name))
+    return matches[0]
 
 # ======================================================
 # Figure (3 panels)
@@ -151,7 +144,7 @@ def make_figure(img_orig, img_wo, img_wi,
              transform=ax2.transAxes, ha="center", va="top", fontsize=9)
 
     plt.suptitle(fill(ref_text, 110), fontsize=13, y=0.98)
-    plt.subplots_adjust(left=0.03, right=0.97, top=0.90, bottom=0.18, wspace=0.05)
+    plt.subplots_adjust(left=0.03, right=0.97, top=0.90, bottom=0.18)
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close()
 
@@ -159,54 +152,62 @@ def make_figure(img_orig, img_wo, img_wi,
 # Load CSVs
 # ======================================================
 df_test = pd.read_csv(csv_test)
-df_wo   = pd.read_csv(csv_without)
-df_wi   = pd.read_csv(csv_with)
+df_wo = pd.read_csv(csv_without)
+df_wi = pd.read_csv(csv_with)
 
-assert len(df_test) == len(df_wo) == len(df_wi)
-
-# ======================================================
-# Load attention images (ORDERED)
-# ======================================================
-imgs_wo = sorted(list(imgdir_without.glob("*.jpg")) + list(imgdir_without.glob("*.png")))
-imgs_wi = sorted(list(imgdir_with.glob("*.jpg")) + list(imgdir_with.glob("*.png")))
-
-assert len(imgs_wo) == len(imgs_wi) == len(df_test)
+df_wo.columns = [c.lower() for c in df_wo.columns]
+df_wi.columns = [c.lower() for c in df_wi.columns]
 
 # ======================================================
-# Main loop
+# Main loop (PREFIX-BASED, CORRECT)
 # ======================================================
 created = 0
+missing = 0
 
-for i in range(len(df_test)):
-    row_test = df_test.iloc[i]
-    row_wo   = df_wo.iloc[i]
-    row_wi   = df_wi.iloc[i]
+for _, row in df_test.iterrows():
+    imgid = row["ImageID"]
+    ref_txt = row["report_en"]
 
-    img_name = row_test["ImageID"]
-    ref_txt  = row_test["report_en"]
-    hyp_wo   = row_wo["hyp"]
-    hyp_wi   = row_wi["hyp"]
+    prefix = build_prefix(imgid, ref_txt)
+
+    attn_wo = find_by_prefix(imgdir_without, prefix)
+    attn_wi = find_by_prefix(imgdir_with, prefix)
+
+    if attn_wo is None or attn_wi is None:
+        missing += 1
+        continue
+
+    row_wo = df_wo[df_wo["imgid"] == imgid]
+    row_wi = df_wi[df_wi["imgid"] == imgid]
+
+    if row_wo.empty or row_wi.empty:
+        missing += 1
+        continue
 
     try:
-        orig_img = load_image(orig_imgdir / img_name)
-        boxes = ast.literal_eval(row_test["boxes"])
+        orig_img = load_image(orig_imgdir / imgid)
+        boxes = ast.literal_eval(row["boxes"])
         orig_img = draw_boxes(orig_img, boxes)
 
-        im_wo = load_image(imgs_wo[i])
-        im_wi = load_image(imgs_wi[i])
+        im_wo = load_image(attn_wo)
+        im_wi = load_image(attn_wi)
 
-        out_path = outdir / safe_outname(img_name, ref_txt)
+        out_path = outdir / safe_outname(imgid, ref_txt)
 
         make_figure(
-            orig_img, im_wo, im_wi,
-            ref_txt, hyp_wo, hyp_wi,
+            orig_img,
+            im_wo,
+            im_wi,
+            ref_txt,
+            row_wo.iloc[0]["hyp"],
+            row_wi.iloc[0]["hyp"],
             out_path
         )
 
         created += 1
 
     except Exception as e:
-        print(f"[ERROR] index={i}, image={img_name}: {e}")
+        print(f"[ERROR] {imgid}: {e}")
 
-print(f"✅ Done. Created {created} 3-panel figures.")
+print(f"✅ Done. Created: {created}, Missing: {missing}")
 print(f"📁 Output directory: {outdir}")
